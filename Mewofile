@@ -13,7 +13,7 @@ build:
 
 #unix release:
     musl-gcc source/main.c -o mewo.new -lm -Os -static -flto -fdata-sections -ffunction-sections -Wl,--gc-sections -s
-    echo Built mewo.new (${#exec("stat -c %s mewo.new | awk '{print int($1/1024)}'", bash)} Kb)
+    echo Built mewo.new (${#exec("stat -c %s mewo.new | awk '{print int(\\$1/1024)}'", bash)} Kb)
 
 #windows install:
     powershell.exe -NoProfile -Command "$dir = \"$env:LOCALAPPDATA\Programs\mewo\"; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }; Copy-Item '.\mewo.new.exe' \"$dir\mewo.exe\" -Force; $userPath = [Environment]::GetEnvironmentVariable('PATH','User'); if ($userPath -notlike \"*$dir*\") { [Environment]::SetEnvironmentVariable('PATH', \"$userPath;$dir\", 'User') }; $env:PATH += \";$dir\";"
