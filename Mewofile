@@ -4,7 +4,7 @@ call build
 
 build:
     #windows gcc source/main.c -o mewo.new.exe -g
-    #linux gcc source/main.c -o mewo.new -g -lm
+    #linux gcc source/main.c -o mewo.new -lm -g
     echo Building complete
 
 #windows release:
@@ -12,7 +12,7 @@ build:
     echo Built mewo.new.exe (${#exec("[math]::Round((Get-Item 'mewo.new.exe').Length/1024, 2)", powershell)} Kb)
 
 #unix release:
-    musl-gcc source/main.c -o mewo.new -Os -static -flto -fdata-sections -ffunction-sections -Wl,--gc-sections -s -lm
+    musl-gcc source/main.c -o mewo.new -lm -Os -static -flto -fdata-sections -ffunction-sections -Wl,--gc-sections -s
     echo Built mewo.new (${#exec("stat -c %s mewo.new | awk '{print int($1/1024)}'", bash)} Kb)
 
 #windows install:

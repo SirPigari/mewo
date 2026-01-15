@@ -52,6 +52,7 @@ int main(int argc, char **argv) {
             "musl-gcc",
             "source/main.c",
             "-o", "mewo",
+            "-lm",
             "-Os",
             "-static",
             "-flto",
@@ -65,6 +66,7 @@ int main(int argc, char **argv) {
             "gcc",
             "source/main.c",
             "-o", "mewo",
+            "-lm",
             "-g"
         );
     }
