@@ -579,6 +579,24 @@ static char* interp_internal(const char* input, size_t line_number, bool* error)
             continue;
         }
         
+        if (p[0] == '$' && p[1] == '$' && p[2] >= '0' && p[2] <= '9') {
+            if (!ib_append_str(&ib, "$")) {
+                set_error(ERROR_MEMORY, "Out of memory during interpolation", line_number);
+                ib_free(&ib);
+                *error = true;
+                return NULL;
+            }
+            p += 2;
+            if (!ib_append_char(&ib, *p)) {
+                set_error(ERROR_MEMORY, "Out of memory during interpolation", line_number);
+                ib_free(&ib);
+                *error = true;
+                return NULL;
+            }
+            p++;
+            continue;
+        }
+
         if (p[0] == '$' && p[1] >= '0' && p[1] <= '9') {
             p++;
             size_t idx = 0;

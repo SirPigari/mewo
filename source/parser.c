@@ -498,7 +498,7 @@ AST* parse(const char** lines, size_t lines_count) {
                 free(line_no_comment);
                 return ast;
             }
-        } else if (find_unquoted_char(after_attrs, '=') && indent == 0) {
+        } else if (find_unquoted_char(after_attrs, '=')) {
             stmt = parse_var_assign(after_attrs, i + 1);
             if (!stmt && has_error()) {
                 free(line_no_comment);
