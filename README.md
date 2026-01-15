@@ -75,7 +75,7 @@ mewo -v
 
 ### Dependencies
 
-Mewo depends on *NO* external libraries for runtime
+Mewo depends only on `libc` and `libm` at runtime.
 
 Build-time dependencies:
 
