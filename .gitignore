@@ -1,0 +1,13 @@
+.vscode/
+
+mewo.exe
+mewo
+
+mewo.new.exe
+mewo.new
+
+nob.exe*
+nob.old
+nob
+
+build_release.bat

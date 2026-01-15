@@ -1,0 +1,35 @@
+{
+  "name": "mewo-syntax",
+  "displayName": "Mewo Syntax Highlighting",
+  "description": "Syntax highlighting support for the Mewo build system (Mewofile)",
+  "version": "1.0.0",
+  "publisher": "SirPigari",
+  "repository": "https://github.com/SirPigari/mewo",
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "mewo",
+        "extensions": [
+          ".mewo"
+        ],
+        "filenames": [
+          "Mewofile"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mewo",
+        "scopeName": "source.mewo",
+        "path": "./syntaxes/mewo.tmLanguage.json"
+      }
+    ]
+  }
+}
