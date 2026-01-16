@@ -11,8 +11,13 @@ build:
     call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\Tools\\VsDevCmd.bat" -arch=x64 && clang-cl source\main.c /Os /MT /D_CRT_SECURE_NO_WARNINGS /Oi /Ot /Gy /link /OPT:REF /OPT:ICF /SUBSYSTEM:CONSOLE /OUT:mewo.new.exe
     echo Built mewo.new.exe (${#sizeof(file, mewo.new.exe, KiB)} KiB)
 
-#unix release:
+#linux release:
     musl-gcc source/main.c -o mewo.new -Os -static -flto -fdata-sections -ffunction-sections -Wl,--gc-sections -s
+    echo "Built mewo.new (${#sizeof(file, mewo.new, KiB)} KiB)"
+
+#macos release:
+    gcc source/main.c -o mewo.new -Os -static -flto -fdata-sections -ffunction-sections -Wl,--gc-sections -s
+    chmod +x mewo.new
     echo "Built mewo.new (${#sizeof(file, mewo.new, KiB)} KiB)"
 
 #windows install:
