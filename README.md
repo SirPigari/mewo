@@ -119,6 +119,8 @@ sudo pacman -S mingw-w64-x86_64-gcc
 sudo pacman -S pacman -S mingw-w64-x86_64-clang
 ```
 
+And you will also need [Visual Studio](https://visualstudio.microsoft.com/downloads/) for release mode
+
 #### Unix
 
 - [gcc](https://gcc.gnu.org/)

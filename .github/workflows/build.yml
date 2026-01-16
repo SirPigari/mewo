@@ -79,5 +79,6 @@ jobs:
           .\mewo.exe release
           .\mewo.exe install
           $env:PATH = [Environment]::GetEnvironmentVariable('PATH','User')  # Refresh PATH because powershell is stupid
+          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH" # double it and give it to the next person
           mewo --version
           mewo
