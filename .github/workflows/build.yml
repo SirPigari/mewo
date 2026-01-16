@@ -73,6 +73,8 @@ jobs:
                 -property installationPath
           ) "Common7\Tools\VsDevCmd.bat"
 
+          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH" # just like i dont know this works so 
+
           .\mewo.exe
           .\mewo.exe release
           .\mewo.exe install
