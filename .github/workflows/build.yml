@@ -9,7 +9,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-2022]
 
     steps:
       - name: Checkout
@@ -29,7 +29,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install FiloSottile/musl-cross/musl-cross gcc llvm
+          brew install FiloSottile/musl-cross/musl-cross gcc
 
           ln -s "$(brew --prefix)/bin/x86_64-linux-musl-gcc" /usr/local/bin/musl-gcc || true
 
