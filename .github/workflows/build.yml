@@ -62,7 +62,7 @@ jobs:
           mewo --version
           mewo
 
-      - name: Run mewo (Windows)
+      - name: Install mewo (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
@@ -73,12 +73,13 @@ jobs:
                 -property installationPath
           ) "Common7\Tools\VsDevCmd.bat"
 
-          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH" # just like i dont know this works so 
-
           .\mewo.exe
           .\mewo.exe release
           .\mewo.exe install
-          $env:PATH = [Environment]::GetEnvironmentVariable('PATH','User')  # Refresh PATH because powershell is stupid
-          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH" # double it and give it to the next person
+
+      - name: Run mewo (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
           mewo --version
           mewo
