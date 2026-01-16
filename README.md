@@ -121,6 +121,10 @@ sudo pacman -S mingw-w64-x86_64-clang
 
 And you will also need [Visual Studio](https://visualstudio.microsoft.com/downloads/) for release mode because `clang-cl` needs the environment (`vcDevCmd`)
 
+> [!NOTE]
+> If you don't want strictly MSVC ABI for the windows, you can just strip the debug for GNU ABI and smaller size.  
+> (`strip` comes with binutils)
+
 #### Unix
 
 - [gcc](https://gcc.gnu.org/)

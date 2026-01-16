@@ -1044,7 +1044,7 @@ static char* interp_internal(const char* input, size_t line_number, bool* error)
                         unit = second_comma + 1;
                     } else {
                         value = first_comma + 1;
-                        unit = "B"; // default
+                        unit = "B";
                     }
                 } else {
                     kind = "var";
@@ -1052,7 +1052,6 @@ static char* interp_internal(const char* input, size_t line_number, bool* error)
                     unit = "B";
                 }
 
-                // trim spaces
                 while (*kind == ' ' || *kind == '\t') kind++;
                 char* endk = kind + strlen(kind);
                 while (endk > kind && (endk[-1] == ' ' || endk[-1] == '\t')) *--endk = '\0';
@@ -1065,7 +1064,6 @@ static char* interp_internal(const char* input, size_t line_number, bool* error)
                 char* endu = unit + strlen(unit);
                 while (endu > unit && (endu[-1] == ' ' || endu[-1] == '\t')) *--endu = '\0';
 
-                // remove quotes from value
                 if (*value == '"' && value[strlen(value) - 1] == '"') {
                     value[strlen(value) - 1] = '\0';
                     value++;
@@ -1100,11 +1098,10 @@ static char* interp_internal(const char* input, size_t line_number, bool* error)
                     }
             #endif
 
-                    // convert based on unit
                     if (strcmp(unit, "b") == 0) {            // bits
                         size *= 8;
                     } else if (strcmp(unit, "B") == 0) {     // bytes
-                        // no change
+                        // fallthrough
                     } else if (strcmp(unit, "Kb") == 0) {    // 1000 bits
                         size = (size * 8) / 1000;
                     } else if (strcmp(unit, "kB") == 0) {    // 1000 bytes
@@ -1136,7 +1133,6 @@ static char* interp_internal(const char* input, size_t line_number, bool* error)
                     }
 
                 } else {
-                    // same as before for variables
                     Variable* var = vars_get(value);
                     if (var) {
                         switch (var->type) {
