@@ -62,7 +62,7 @@ jobs:
           mewo --version
           mewo
 
-      - name: Install mewo (Windows)
+      - name: Run mewo (Windows)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
@@ -76,10 +76,3 @@ jobs:
           .\mewo.exe
           .\mewo.exe release
           .\mewo.exe install
-
-      - name: Run mewo (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          mewo --version
-          mewo
