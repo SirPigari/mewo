@@ -29,9 +29,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install FiloSottile/musl-cross/musl-cross gcc
-
-          ln -s "$(brew --prefix)/bin/x86_64-linux-musl-gcc" /usr/local/bin/musl-gcc || true
+          brew install gcc
 
       - name: Install MSYS2 (Windows)
         if: runner.os == 'Windows'

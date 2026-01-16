@@ -16,7 +16,8 @@ build:
     echo "Built mewo.new (${#sizeof(file, mewo.new, KiB)} KiB)"
 
 #macos release:
-    gcc source/main.c -o mewo.new -Os -static -flto -fdata-sections -ffunction-sections -Wl,--gc-sections -s
+    gcc source/main.c -o mewo.new -Os -flto -fdata-sections -ffunction-sections
+    strip mewo.new
     chmod +x mewo.new
     echo "Built mewo.new (${#sizeof(file, mewo.new, KiB)} KiB)"
 
