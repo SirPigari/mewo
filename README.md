@@ -29,7 +29,7 @@ This will run build on `mewo`.
 
 ---
 
-One of main features of Mewo is OS awarness, which means the code will do different things on different platforms.
+One of main features of Mewo is OS awareness, which means the code will do different things on different platforms.
 
 This code will echo different message on different oses:
 
@@ -107,7 +107,7 @@ Build-time dependencies:
 I recommend these from [MSYS2 MinGW64](https://www.msys2.org/)
 
 - [gcc](https://gcc.gnu.org/)
-- [clang-cl](https://clang.org/)
+- [clang-cl](https://clang.org/) (release)
 
 Run this in MinGW64:
 
@@ -116,15 +116,15 @@ pacman -Syu
 # close and reopen the window
 pacman -Su
 sudo pacman -S mingw-w64-x86_64-gcc
-sudo pacman -S pacman -S mingw-w64-x86_64-clang
+sudo pacman -S mingw-w64-x86_64-clang
 ```
 
-And you will also need [Visual Studio](https://visualstudio.microsoft.com/downloads/) for release mode
+And you will also need [Visual Studio](https://visualstudio.microsoft.com/downloads/) for release mode because `clang-cl` needs the environment (`vcDevCmd`)
 
 #### Unix
 
 - [gcc](https://gcc.gnu.org/)
-- [musl-gcc](https://musl.libc.org/)
+- [musl-gcc](https://musl.libc.org/) (release)
 
 Run this in terminal (assuming void linux):
 
