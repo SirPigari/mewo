@@ -8,7 +8,7 @@ build:
     echo Building complete
 
 #windows release:
-    call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\Tools\\VsDevCmd.bat" -arch=x64 && clang-cl source\main.c /Os /MT /D_CRT_SECURE_NO_WARNINGS /Oi /Ot /Gy /link /OPT:REF /OPT:ICF /SUBSYSTEM:CONSOLE /OUT:mewo.new.exe
+    call ${#env(vsDevCmd, "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\Tools\\VsDevCmd.bat")} -arch=x64 && clang-cl source\main.c /Os /MT /D_CRT_SECURE_NO_WARNINGS /Oi /Ot /Gy /link /OPT:REF /OPT:ICF /SUBSYSTEM:CONSOLE /OUT:mewo.new.exe
     echo Built mewo.new.exe (${#sizeof(file, mewo.new.exe, KiB)} KiB)
 
 #linux release:
