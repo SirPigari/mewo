@@ -52,7 +52,6 @@ int main(int argc, char **argv) {
             "musl-gcc",
             "source/main.c",
             "-o", "mewo",
-            "-lm",
             "-Os",
             "-static",
             "-flto",
@@ -66,7 +65,6 @@ int main(int argc, char **argv) {
             "gcc",
             "source/main.c",
             "-o", "mewo",
-            "-lm",
             "-g"
         );
     }
@@ -77,11 +75,11 @@ int main(int argc, char **argv) {
     #ifdef _WIN32
     struct _stat64 st;
     if (_stat64("mewo.exe", &st) == 0)
-        nob_log(NOB_INFO, "Built mewo.exe (%zu Kb)", (size_t)(st.st_size / 1024));
+        nob_log(NOB_INFO, "Built mewo.exe (%zu KiB)", (size_t)(st.st_size / 1024));
     #else
     struct stat st;
     if (stat("mewo", &st) == 0)
-        nob_log(NOB_INFO, "Built mewo (%zu Kb)", (size_t)(st.st_size / 1024));
+        nob_log(NOB_INFO, "Built mewo (%zu KiB)", (size_t)(st.st_size / 1024));
     #endif
 
     if (argc >= 2 && strcmp(argv[1], "run") == 0) {

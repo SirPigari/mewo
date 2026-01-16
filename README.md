@@ -49,6 +49,29 @@ The `#attr` can be placed on any label or any single command.
     cl main.c /Fe:main.exe
 ```
 
+---
+
+Mewo also supports string interpolation, which is done thru `${}` syntax.
+This works anywhere.
+
+```mewo
+i = 10
+name = "World"
+
+echo Hello ${name}
+
+test:
+    echo ${i}
+```
+
+And some functions directly inside string interpolation.
+
+```mewo
+echo File mewo is ${#sizeof(file, mewo, KiB)} KiB in size.
+```
+
+---
+
 Comments are `;` and `//` btw
 
 ## Installation
@@ -75,7 +98,7 @@ mewo -v
 
 ### Dependencies
 
-Mewo depends only on `libc` and `libm` at runtime.
+Mewo depends *only* on libc.
 
 Build-time dependencies:
 
@@ -106,6 +129,13 @@ Run this in terminal (assuming void linux):
 ```console
 sudo xbps-install -S gcc musl-devel
 ```
+
+### Executable size
+
+| Platform | Debug (KiB) | Release (KiB) |
+| -------- | ----------- | ------------- |
+| Windows  | 558         | 263           |
+| Unix     | 209         | 93            |
 
 ## References
 

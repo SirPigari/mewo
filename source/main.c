@@ -76,6 +76,25 @@ static void split_lines(const char* code, char*** out_lines, size_t* out_count) 
     *out_count = count;
 }
 
+static Nob_Log_Level current_log_level = NOB_INFO;
+
+void mewo_log_handler(Nob_Log_Level level, const char *fmt, va_list args) {
+    if (level < current_log_level) {
+        return;
+    }
+
+    const char* level_str = "";
+    switch (level) {
+        case NOB_INFO:    level_str = "INFO   "; break;
+        case NOB_WARNING: level_str = "WARNING"; break;
+        case NOB_ERROR:   level_str = "ERROR  "; break;
+        default:          level_str = "LOG    "; break;
+    }
+    fprintf(stderr, "[%s] ", level_str);
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+}
+
 int main(int argc, char** argv) {
     bool* help    = flag_bool("help", false, "Show help", .short_name='h');
     bool* version = flag_bool("version", false, "Show version", .short_name='v');
@@ -83,7 +102,7 @@ int main(int argc, char** argv) {
     Flag_List* features_enable  = flag_list("F", "Enable feature (use +Fname or +F name)", .plus_sign=true);
     Flag_List* features_disable = flag_list("F", "Disable feature (use -Fname or -F name)");
     char** shell   = flag_str("shell", "", "Default shell");
-    char** mewofile = flag_str("mewofile", "Mewofile", "Path to Mewofile", .short_name='p', .alias="file");
+    char** mewofile = flag_str("mewofile", "Mewofile", "Path to Mewofile", .short_name='f', .alias="file");
     bool* debug   = flag_bool("debug", false, "Enable debug output", .short_name='d');
     bool* dry_run = flag_bool("dry-run", false, "Print commands without executing");
 
@@ -100,6 +119,14 @@ int main(int argc, char** argv) {
     if (*version) {
         printf("mewo version %d.%d\n", VERSION >> 8, VERSION & 0xFF);
         return 0;
+    }
+
+    nob_set_log_handler(mewo_log_handler);
+
+    if (!(*debug)) {
+        current_log_level = NOB_ERROR;
+    } else {
+        current_log_level = NOB_INFO;
     }
 
     int rest = flag_rest_argc();
@@ -160,7 +187,13 @@ int main(int argc, char** argv) {
     AST* ast = parse((const char**)lines, lines_count);
 
     if (*debug) {
-        print_ast(ast);
+        if (label) {
+            printf("Invoking label: %s\n", label);
+            print_ast_label(ast, label);
+        } else {
+            printf("No label specified, executing default\n");
+            print_ast(ast);
+        }
     }
 
     if (has_error()) {

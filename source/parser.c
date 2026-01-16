@@ -169,6 +169,25 @@ static const char* find_unquoted_char(const char* str, char c) {
     return NULL;
 }
 
+bool is_single_identifier_before_eq(const char *s) {
+    const char *eq = strchr(s, '=');
+    if (!eq) return false;
+
+    const char *p = eq;
+    while (p > s && isspace(*(p-1))) p--;
+
+    const char *start = p;
+    while (start > s && (isalnum(*(start-1)) || *(start-1) == '_')) start--;
+
+    for (const char *c = s; c < start; c++) {
+        if (!isspace(*c)) return false;
+    }
+
+    if (start == p) return false;
+
+    return true;
+}
+
 static Stmt* parse_attr(const char* line, size_t line_number) {
     const char* p = line;
     while (*p && isspace(*p)) p++;
@@ -498,7 +517,7 @@ AST* parse(const char** lines, size_t lines_count) {
                 free(line_no_comment);
                 return ast;
             }
-        } else if (find_unquoted_char(after_attrs, '=')) {
+        } else if (find_unquoted_char(after_attrs, '=') && is_single_identifier_before_eq(after_attrs)) {
             stmt = parse_var_assign(after_attrs, i + 1);
             if (!stmt && has_error()) {
                 free(line_no_comment);
@@ -637,6 +656,84 @@ void free_ast(AST* ast) {
     free(ast->stmts);
     free(ast);
 }
+
+static const char* str_trim_ws(const char* s) {
+    while (*s && isspace(*s)) s++;
+    return s;
+}
+
+void print_ast_label(AST* ast, const char* target_label) {
+    bool in_label_block = false;
+
+    for (size_t i = 0; i < ast->stmts_count; i++) {
+        Stmt* stmt = ast->stmts[i];
+
+        if (stmt->type == STMT_LABEL) {
+            if (strcmp(stmt->label.name, target_label) == 0) {
+                in_label_block = true;
+            } else {
+                in_label_block = false;
+                continue;
+            }
+        }
+
+        if (!in_label_block) continue;
+
+        for (int j = 0; j < stmt->indent_level; j++) printf("    ");
+
+        switch (stmt->type) {
+            case STMT_LABEL:
+                printf("%s:\n", stmt->label.name);
+                break;
+            case STMT_COMMAND: {
+                const char* cmd = str_trim_ws(stmt->command.raw_line);
+                printf("%s\n", stmt->command.raw_line);
+
+                for (size_t k = 0; k < ast->stmts_count; k++) {
+                    Stmt* possible_label = ast->stmts[k];
+                    if (possible_label->type == STMT_LABEL &&
+                        strcmp(possible_label->label.name, cmd) == 0) {
+                        print_ast_label(ast, cmd);
+                    }
+                }
+            } break;
+            case STMT_VAR_ASSIGN:
+                printf("%s = %s\n", stmt->var_assign.name, stmt->var_assign.value);
+                break;
+            case STMT_ATTR:
+                printf("#%s", stmt->attr.name);
+                if (stmt->attr.param_count > 0) {
+                    printf("(");
+                    for (int j = 0; j < stmt->attr.param_count; j++) {
+                        if (j > 0) printf(", ");
+                        printf("%s", stmt->attr.parameters[j]->command.raw_line);
+                    }
+                    printf(")");
+                }
+                printf("\n");
+                break;
+            case STMT_IF:
+                printf("#if(%s)\n", stmt->if_stmt.condition);
+                break;
+            case STMT_ELSE:
+                printf("#else\n");
+                break;
+            case STMT_ENDIF:
+                printf("#endif\n");
+                break;
+            case STMT_GOTO:
+                printf("goto %s\n", stmt->goto_stmt.target);
+                break;
+            case STMT_CALL:
+                printf("call %s\n", stmt->call_stmt.target);
+                break;
+            default:
+                printf("Unknown statement type\n");
+                break;
+        }
+    }
+}
+
 
 void print_ast(AST* ast) {
     for (size_t i = 0; i < ast->stmts_count; i++) {

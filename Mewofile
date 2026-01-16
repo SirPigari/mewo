@@ -4,18 +4,16 @@ call build
 
 build:
     #windows gcc source/main.c -o mewo.new.exe -g
-    #linux gcc source/main.c -o mewo.new -lm -g
+    #linux gcc source/main.c -o mewo.new -g
     echo Building complete
 
 #windows release:
-    call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\Tools\\VsDevCmd.bat"  -arch=x64 && clang-cl source\main.c /Os /MT /D_CRT_SECURE_NO_WARNINGS /Oi /Ot /Gy /link /OPT:REF /OPT:ICF /SUBSYSTEM:CONSOLE /OUT:mewo.new.exe
-    echo Built mewo.new.exe (${#exec("[math]::Round((Get-Item 'mewo.new.exe').Length/1024, 2)", powershell)} Kb)
+    call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\Tools\\VsDevCmd.bat" -arch=x64 && clang-cl source\main.c /Os /MT /D_CRT_SECURE_NO_WARNINGS /Oi /Ot /Gy /link /OPT:REF /OPT:ICF /SUBSYSTEM:CONSOLE /OUT:mewo.new.exe
+    echo Built mewo.new.exe (${#sizeof(file, mewo.new.exe, KiB)} KiB)
 
 #unix release:
-    musl-gcc source/main.c -o mewo.new -lm -Os -static -flto -fdata-sections -ffunction-sections -Wl,--gc-sections -s
-    size_kb = 0
-    #save(size_kb) #shell(bash -c "%s") stat -c %s mewo.new | awk '{print int(\$$1/1024)}'
-    echo Built mewo.new (${size_kb} Kb)
+    musl-gcc source/main.c -o mewo.new -Os -static -flto -fdata-sections -ffunction-sections -Wl,--gc-sections -s
+    echo "Built mewo.new (${#sizeof(file, mewo.new, KiB)} KiB)"
 
 #windows install:
     powershell.exe -NoProfile -Command "$dir = \"$env:LOCALAPPDATA\Programs\mewo\"; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }; Copy-Item '.\mewo.new.exe' \"$dir\mewo.exe\" -Force; $userPath = [Environment]::GetEnvironmentVariable('PATH','User'); if ($userPath -notlike \"*$dir*\") { [Environment]::SetEnvironmentVariable('PATH', \"$userPath;$dir\", 'User') }; $env:PATH += \";$dir\";"
@@ -24,7 +22,7 @@ build:
 
 #unix install:
     sudo ln -sf $(pwd)/mewo.new /usr/local/bin/mewo
-    echo Mewo installed to /usr/local/bin/mewo
+    echo "Mewo installed to /usr/local/bin/mewo"
     mewo --version
 
 run:

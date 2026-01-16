@@ -210,7 +210,7 @@
     (NOB_ASSERT((size_t)index < NOB_ARRAY_LEN(array)), array[(size_t)index])
 
 typedef enum {
-    NOB_INFO,
+    NOB_INFO = 0,
     NOB_WARNING,
     NOB_ERROR,
     NOB_NO_LOGS,

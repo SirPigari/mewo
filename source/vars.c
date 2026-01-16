@@ -17,9 +17,54 @@
 
 #include <math.h>
 
+#if !defined(floor)
+    #define floor(x) ((double)(((long long)(x)) - ((x) < 0 && (x) != (double)((long long)(x)) ? 1 : 0)))
+#endif
+
 #ifdef _WIN32
-  #define popen _popen
-  #define pclose _pclose
+    #include <windows.h>
+    #include <wchar.h>
+
+    #define popen _popen
+    #define pclose _pclose
+
+    void print_last_error() {
+        DWORD err = GetLastError();
+        if (err == 0) {
+            printf("No error\n");
+            return;
+        }
+
+        LPWSTR wbuf = NULL;
+        DWORD size = FormatMessageW(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER |
+            FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL,
+            err,
+            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+            (LPWSTR)&wbuf,
+            0,
+            NULL
+        );
+
+        if (size && wbuf) {
+            while (size > 0 && (wbuf[size - 1] == L'\n' || wbuf[size - 1] == L'\r')) {
+                wbuf[size - 1] = L'\0';
+                size--;
+            }
+
+            int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, NULL, 0, NULL, NULL);
+            char *utf8_buf = malloc(utf8_len);
+            WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, utf8_buf, utf8_len, NULL, NULL);
+
+            nob_log(NOB_ERROR, "%lu: %s", err, utf8_buf);
+            free(utf8_buf);
+            LocalFree(wbuf);
+        } else {
+            nob_log(NOB_ERROR, "%lu: (failed to get message)", err);
+        }
+    }
 #endif
 
 typedef enum {
@@ -958,6 +1003,167 @@ static char* interp_internal(const char* input, size_t line_number, bool* error)
                 }
 
                 free(cmd);
+                free(content);
+                p = after;
+                continue;
+            }
+
+            if (strncmp(interpolated_expr, "#sizeof(", 8) == 0 &&
+                interpolated_expr[strlen(interpolated_expr) - 1] == ')') {
+
+                size_t content_len = strlen(interpolated_expr) - 9;
+                char* content = malloc(content_len + 1);
+                if (!content) {
+                    set_error(ERROR_MEMORY, "Out of memory", line_number);
+                    free(interpolated_expr);
+                    ib_free(&ib);
+                    *error = true;
+                    return NULL;
+                }
+
+                memcpy(content, interpolated_expr + 8, content_len);
+                content[content_len] = '\0';
+                free(interpolated_expr);
+
+                char* kind = NULL;
+                char* value = NULL;
+                char* unit = NULL;
+
+                char* ptr = content;
+                while (*ptr == ' ' || *ptr == '\t') ptr++;
+
+                char* first_comma = strchr(ptr, ',');
+                if (first_comma) {
+                    *first_comma = '\0';
+                    kind = ptr;
+
+                    char* second_comma = strchr(first_comma + 1, ',');
+                    if (second_comma) {
+                        *second_comma = '\0';
+                        value = first_comma + 1;
+                        unit = second_comma + 1;
+                    } else {
+                        value = first_comma + 1;
+                        unit = "B"; // default
+                    }
+                } else {
+                    kind = "var";
+                    value = ptr;
+                    unit = "B";
+                }
+
+                // trim spaces
+                while (*kind == ' ' || *kind == '\t') kind++;
+                char* endk = kind + strlen(kind);
+                while (endk > kind && (endk[-1] == ' ' || endk[-1] == '\t')) *--endk = '\0';
+
+                while (*value == ' ' || *value == '\t') value++;
+                char* endv = value + strlen(value);
+                while (endv > value && (endv[-1] == ' ' || endv[-1] == '\t')) *--endv = '\0';
+
+                while (*unit == ' ' || *unit == '\t') unit++;
+                char* endu = unit + strlen(unit);
+                while (endu > unit && (endu[-1] == ' ' || endu[-1] == '\t')) *--endu = '\0';
+
+                // remove quotes from value
+                if (*value == '"' && value[strlen(value) - 1] == '"') {
+                    value[strlen(value) - 1] = '\0';
+                    value++;
+                }
+
+                size_t size = 0;
+
+                if (strcmp(kind, "file") == 0) {
+            #ifdef _WIN32
+                    WIN32_FILE_ATTRIBUTE_DATA info;
+                    char fullpath[MAX_PATH];
+                    DWORD n = GetFullPathNameA(value, sizeof(fullpath), fullpath, NULL);
+
+                    if (n == 0 || n >= sizeof(fullpath)) {
+                        nob_log(NOB_ERROR, "Failed to get full path");
+                        print_last_error();
+                    } else if (!GetFileAttributesExA(fullpath, GetFileExInfoStandard, &info)) {
+                        nob_log(NOB_ERROR, "Failed to get file attributes");
+                        print_last_error();
+                    } else {
+                        ULARGE_INTEGER s;
+                        s.LowPart = info.nFileSizeLow;
+                        s.HighPart = info.nFileSizeHigh;
+                        size = (size_t)s.QuadPart;
+                    }
+            #else
+                    struct stat st;
+                    if (stat(value, &st) == 0) {
+                        size = (size_t)st.st_size;
+                    } else {
+                        nob_log(NOB_ERROR, "Failed to stat file '%s': %s", value, strerror(errno));
+                    }
+            #endif
+
+                    // convert based on unit
+                    if (strcmp(unit, "b") == 0) {            // bits
+                        size *= 8;
+                    } else if (strcmp(unit, "B") == 0) {     // bytes
+                        // no change
+                    } else if (strcmp(unit, "Kb") == 0) {    // 1000 bits
+                        size = (size * 8) / 1000;
+                    } else if (strcmp(unit, "kB") == 0) {    // 1000 bytes
+                        size = size / 1000;
+                    } else if (strcmp(unit, "KB") == 0) {    // 1024 bytes
+                        size = size / 1024;
+                    } else if (strcmp(unit, "KiB") == 0) {   // 1024 bytes
+                        size = size / 1024;
+                    } else if (strcmp(unit, "Mb") == 0) {    // 1 million bits
+                        size = (size * 8) / 1000000;
+                    } else if (strcmp(unit, "MB") == 0) {    // 1 million bytes
+                        size = size / 1000000;
+                    } else if (strcmp(unit, "MiB") == 0) {   // 1024*1024 bytes
+                        size = size / (1024*1024);
+                    } else if (strcmp(unit, "Gb") == 0) {    // 1 billion bits
+                        size = (size * 8) / 1000000000;
+                    } else if (strcmp(unit, "GB") == 0) {    // 1 billion bytes
+                        size = size / 1000000000;
+                    } else if (strcmp(unit, "GiB") == 0) {   // 1024^3 bytes
+                        size = size / (1024*1024*1024);
+                    } else if (strcmp(unit, "Tb") == 0) {    // 1 trillion bits
+                        size = (size * 8) / 1000000000000ULL;
+                    } else if (strcmp(unit, "TB") == 0) {    // 1 trillion bytes
+                        size = size / 1000000000000ULL;
+                    } else if (strcmp(unit, "TiB") == 0) {   // 1024^4 bytes
+                        size = size / (1024ULL*1024*1024*1024);
+                    } else {
+                        nob_log(NOB_WARNING, "Unknown unit '%s', defaulting to bytes", unit);
+                    }
+
+                } else {
+                    // same as before for variables
+                    Variable* var = vars_get(value);
+                    if (var) {
+                        switch (var->type) {
+                            case VAR_STRING:
+                                size = strlen(var->string_value ? var->string_value : "");
+                                break;
+                            case VAR_ARRAY:
+                                size = var->array_value.count;
+                                break;
+                            default:
+                                size = sizeof(Variable);
+                                break;
+                        }
+                    }
+                }
+
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%zu", size);
+
+                if (!ib_append_str(&ib, buf)) {
+                    set_error(ERROR_MEMORY, "Out of memory during interpolation", line_number);
+                    free(content);
+                    ib_free(&ib);
+                    *error = true;
+                    return NULL;
+                }
+
                 free(content);
                 p = after;
                 continue;
