@@ -143,18 +143,18 @@ sudo xbps-install -S gcc musl-devel
 | Windows  | 558         | 263           |
 | Unix     | 209         | 93            |
 
+## Why Mewo?
+
+Often the **Why project name** section is used to describe why should you use the project. For Mewo its different. I do not recommend this system to anyone in real projects, so instead this section is about why i choose the name *Mewo*.
+
+So really liked this youtubed, [Mysticat](https://www.youtube.com/@mysticat), he is a Minecraft youtuber and a game dev. But that is not important. I don't exactly remember when and why but i remember him saying *mewo* a lot as a name for something (i guess he was refering to omori but idk). Then sometimes in 2022 fall i went to the city centre and walked around the church in night, and there was this cute cat :3 and i took him home because he was stranded. And i called him Mewo because of the youtuber. Thats why this project is called Mewo too. Also its because Mewo is easy to type on the keyboard.
+
 ## References
 
 Aka projects used in Mewo
 
 - [Nob](https://github.com/tsoding/nob.h)
 - [flag.h (modified)](https://github.com/tsoding/flag.h)
-
-## Why Mewo?
-
-Often the **Why project name** section is used to describe why should you use the project. For Mewo its different. I do not reccomend this system to anyone in real projects, so instead this section is about why i choose the name *Mewo*.
-
-So really liked this youtubed, [Mysticat](https://www.youtube.com/@mysticat), he is a Minecraft youtuber and a game dev. But that is not important. I don't exactly remember when and why but i remember him saying *mewo* a lot as a name for something (i guess he was refering to omori but idk). Then sometimes in 2022 fall i went to the city centre and walked around the church in night, and there was this cute cat :3 and i took him home because he was stranded. And i called him Mewo because of the youtuber. Thats why this project is called Mewo too. Also its because Mewo is easy to type on the keyboard.
 
 ## License
 
