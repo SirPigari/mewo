@@ -73,6 +73,10 @@
 				{
 					"name": "keyword.control.platform.mewo",
 					"match": "#(windows|linux|macos|unix)\\b"
+				},
+				{
+					"name": "keyword.control.conditional.mewo",
+					"match": "#exists\\s*\\([^)]*\\)"
 				}
 			]
 		},

@@ -61,6 +61,7 @@ typedef struct {
 static bool exec_stmt(ExecContext* ctx, Stmt* stmt, size_t line_number);
 static bool exec_label(ExecContext* ctx, const char* label_name, size_t caller_line);
 static bool exec_command(ExecContext* ctx, const char* raw_cmd, size_t line_number);
+static bool exec_top_level_except_calls_and_gotos(ExecContext* ctx);
 static int find_label_index(ExecContext* ctx, const char* name);
 static bool is_label_name(ExecContext* ctx, const char* name);
 
@@ -173,7 +174,7 @@ static size_t find_label_end(ExecContext* ctx, size_t label_stmt_index) {
 }
 
 static bool is_platform_windows(void) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__WIN32__) || defined(__MINGW32__) || defined(_MSC_VER)
     return true;
 #else
     return false;
@@ -250,7 +251,7 @@ static char* get_distro(void) {
 #endif
 }
 
-static bool check_conditional_attr(Stmt* attr) {
+static bool check_conditional_attr(Stmt* attr, size_t line_number) {
     const char* name = attr->attr.name;
     
     if (strcmp(name, "windows") == 0 || strcmp(name, "win32") == 0) {
@@ -265,7 +266,7 @@ static bool check_conditional_attr(Stmt* attr) {
     if (strcmp(name, "unix") == 0) {
         return is_platform_unix();
     }
-    
+
     if (strcmp(name, "arch") == 0) {
         if (attr->attr.param_count > 0) {
             const char* expected = attr->attr.parameters[0]->command.raw_line;
@@ -307,6 +308,33 @@ static bool check_conditional_attr(Stmt* attr) {
         return false;
     }
     
+    if (strcmp(name, "exists") == 0) {
+        if (attr->attr.param_count > 0) {
+            char* raw_param = attr->attr.parameters[0]->command.raw_line;
+            char* path;
+            
+            if (raw_param[0] == '"' && raw_param[strlen(raw_param) - 1] == '"') {
+                size_t len = strlen(raw_param) - 2;
+                path = malloc(len + 1);
+                memcpy(path, raw_param + 1, len);
+                path[len] = '\0';
+            } else {
+                Variable* var = vars_get(raw_param);
+                if (!var || var->type != VAR_STRING) {
+                    path = interpolate(raw_param, line_number);
+                    if (!path) return false;
+                } else {
+                    path = str_dup(var->string_value ? var->string_value : "");
+                }
+            }
+            
+            bool result = file_exists(path);
+            free(path);
+            return result;
+        }
+        return false;
+    }
+    
     return true;
 }
 
@@ -320,14 +348,15 @@ static bool is_conditional_attr(const char* name) {
            strcmp(name, "arch") == 0 ||
            strcmp(name, "distro") == 0 ||
            strcmp(name, "feature") == 0 ||
-           strcmp(name, "env") == 0;
+           strcmp(name, "env") == 0 ||
+           strcmp(name, "exists") == 0;
 }
 
 static bool check_pending_conditionals(ExecContext* ctx) {
     for (size_t i = 0; i < ctx->pending_attrs.count; i++) {
         Stmt* attr = ctx->pending_attrs.attrs[i];
         if (is_conditional_attr(attr->attr.name)) {
-            if (!check_conditional_attr(attr)) {
+            if (!check_conditional_attr(attr, 0)) { // TODO: pass proper line number
                 return false;
             }
         }
@@ -820,6 +849,10 @@ static bool exec_stmt(ExecContext* ctx, Stmt* stmt, size_t stmt_index) {
         case STMT_LABEL:
             ctx_clear_pending_attrs(ctx);
             return true;
+        
+        case STMT_LABEL_ALIAS:
+            ctx_clear_pending_attrs(ctx);
+            return true;
             
         case STMT_COMMAND: {
             const char* cmd = stmt->command.raw_line;
@@ -851,7 +884,7 @@ static bool exec_stmt(ExecContext* ctx, Stmt* stmt, size_t stmt_index) {
             ctx_clear_pending_attrs(ctx);
             return exec_label(ctx, stmt->call_stmt.target, line_number);
         }
-        
+
         case STMT_IF:
         case STMT_ELSE:
         case STMT_ENDIF:
@@ -946,17 +979,32 @@ static bool exec_label(ExecContext* ctx, const char* label_name, size_t caller_l
         return false;
     }
     
+    if (!exec_top_level_except_calls_and_gotos(ctx)) {
+        return false;
+    }
+    
     size_t label_stmt_idx = ctx->labels.indices[label_idx];
-    size_t label_end = find_label_end(ctx, label_stmt_idx);
+    Stmt* label_stmt = ctx->ast->stmts[label_stmt_idx];
     
-    int prev_label = ctx->current_label_index;
-    ctx->current_label_index = label_idx;
-    
-    bool success = exec_range(ctx, label_stmt_idx + 1, label_end, 1);
-    
-    ctx->current_label_index = prev_label;
-    
-    return success;
+    if (label_stmt->type == STMT_LABEL_ALIAS) {
+        bool success = true;
+        for (size_t k = 0; k < label_stmt->label_alias.target_count; k++) {
+            success = exec_label(ctx, label_stmt->label_alias.targets[k], caller_line);
+            if (!success) break;
+        }
+        return success;
+    } else {
+        size_t label_end = find_label_end(ctx, label_stmt_idx);
+        
+        int prev_label = ctx->current_label_index;
+        ctx->current_label_index = label_idx;
+        
+        bool success = exec_range(ctx, label_stmt_idx + 1, label_end, 1);
+        
+        ctx->current_label_index = prev_label;
+        
+        return success;
+    }
 }
 
 static bool register_all_labels(ExecContext* ctx) {
@@ -965,14 +1013,21 @@ static bool register_all_labels(ExecContext* ctx) {
         Stmt* before_stmt = (i > 0) ? ctx->ast->stmts[i - 1] : NULL;
         if (before_stmt && before_stmt->type == STMT_ATTR) {
             if (is_conditional_attr(before_stmt->attr.name)) {
-                bool cond_result = check_conditional_attr(before_stmt);
+                bool cond_result = check_conditional_attr(before_stmt, i);
                 if (!cond_result) {
                     continue;
                 }
             }
         }
         if (stmt->type == STMT_LABEL && stmt->indent_level == 0) {
-            if (!ctx_register_label(ctx, stmt->label.name, i)) {
+            if (stmt->label.name[0] != '\0') {
+                if (!ctx_register_label(ctx, stmt->label.name, i)) {
+                    return false;
+                }
+            }
+        }
+        if (stmt->type == STMT_LABEL_ALIAS && stmt->indent_level == 0) {
+            if (!ctx_register_label(ctx, stmt->label_alias.name, i)) {
                 return false;
             }
         }
@@ -986,7 +1041,15 @@ static bool exec_top_level(ExecContext* ctx) {
     while (i < ctx->ast->stmts_count) {
         Stmt* stmt = ctx->ast->stmts[i];
         
-        if (stmt->type == STMT_LABEL && stmt->indent_level == 0) {
+        if ((stmt->type == STMT_LABEL || stmt->type == STMT_LABEL_ALIAS) && stmt->indent_level == 0) {
+            if (stmt->type == STMT_LABEL && stmt->label.name[0] == '\0') {
+                size_t end = find_label_end(ctx, i);
+                if (!exec_range(ctx, i + 1, end, 1)) {
+                    return false;
+                }
+            } else {
+                ctx_clear_pending_attrs(ctx);
+            }
             i = find_label_end(ctx, i);
             continue;
         }
@@ -1043,6 +1106,103 @@ static bool exec_top_level(ExecContext* ctx) {
             }
             
             if (stmt->type == STMT_ELSE || stmt->type == STMT_ENDIF) {
+                i++;
+                continue;
+            }
+            
+            if (!exec_stmt(ctx, stmt, i)) {
+                return false;
+            }
+            
+            if (stmt->type == STMT_GOTO && ctx->current_index != i) {
+                i = ctx->current_index + 1;
+                continue;
+            }
+        }
+        
+        i++;
+    }
+    
+    return true;
+}
+
+static bool exec_top_level_except_calls_and_gotos(ExecContext* ctx) {
+    size_t i = 0;
+    
+    while (i < ctx->ast->stmts_count) {
+        Stmt* stmt = ctx->ast->stmts[i];
+        
+        if ((stmt->type == STMT_LABEL || stmt->type == STMT_LABEL_ALIAS) && stmt->indent_level == 0) {
+            if (stmt->type == STMT_LABEL && stmt->label.name[0] == '\0') {
+                // Execute empty label body with pending attrs
+                size_t end = find_label_end(ctx, i);
+                if (!exec_range(ctx, i + 1, end, 1)) {
+                    return false;
+                }
+            } else {
+                ctx_clear_pending_attrs(ctx);
+            }
+            i = find_label_end(ctx, i);
+            continue;
+        }
+        
+        if (stmt->indent_level == 0) {
+            ctx->current_index = i;
+            
+            if (stmt->type == STMT_IF) {
+                bool condition_result = false;
+                if (!eval_condition(stmt->if_stmt.condition, i + 1, &condition_result)) {
+                    return false;
+                }
+                
+                size_t else_idx = 0;
+                size_t endif_idx = 0;
+                int depth = 1;
+                bool found_else = false;
+                
+                for (size_t j = i + 1; j < ctx->ast->stmts_count && depth > 0; j++) {
+                    Stmt* s = ctx->ast->stmts[j];
+                    if (s->indent_level != 0) continue;
+                    
+                    if (s->type == STMT_IF) {
+                        depth++;
+                    } else if (s->type == STMT_ELSE && depth == 1) {
+                        else_idx = j;
+                        found_else = true;
+                    } else if (s->type == STMT_ENDIF) {
+                        depth--;
+                        if (depth == 0) {
+                            endif_idx = j;
+                        }
+                    }
+                }
+                
+                if (endif_idx == 0) {
+                    set_error(ERROR_SYNTAX, "Missing #endif for #if", i + 1);
+                    return false;
+                }
+                
+                if (condition_result) {
+                    size_t branch_end = found_else ? else_idx : endif_idx;
+                    if (!exec_range(ctx, i + 1, branch_end, 1)) {
+                        return false;
+                    }
+                } else if (found_else) {
+                    if (!exec_range(ctx, else_idx + 1, endif_idx, 1)) {
+                        return false;
+                    }
+                }
+                
+                i = endif_idx + 1;
+                continue;
+            }
+            
+            if (stmt->type == STMT_ELSE || stmt->type == STMT_ENDIF) {
+                i++;
+                continue;
+            }
+            
+            if (stmt->type == STMT_CALL || stmt->type == STMT_GOTO) {
                 i++;
                 continue;
             }

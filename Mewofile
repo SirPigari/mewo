@@ -22,7 +22,7 @@ build:
     echo "Built mewo.new (${#sizeof(file, mewo.new, KiB)} KiB)"
 
 #windows install:
-    powershell.exe -NoProfile -Command "$dir = \"$env:LOCALAPPDATA\Programs\mewo\"; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }; Copy-Item '.\mewo.new.exe' \"$dir\mewo.exe\" -Force; $userPath = [Environment]::GetEnvironmentVariable('PATH','User'); if ($userPath -notlike \"*$dir*\") { [Environment]::SetEnvironmentVariable('PATH', \"$userPath;$dir\", 'User') }; $env:PATH += \";$dir\";"
+    powershell.exe -NoProfile -Command "$dir = \"$env:LOCALAPPDATA\Programs\mewo\"; if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }; $dst = \"$dir\mewo.exe\"; $src = (Resolve-Path '.\mewo.new.exe'); $mode = ''; if (Test-Path $dst) { try { Remove-Item $dst -Force -ErrorAction Stop } catch { $tmp = \"$dst.tmp\"; Copy-Item $src $tmp -Force; Move-Item $tmp $dst -Force; $mode = 'copied (file was in use)' } }; if (-not $mode) { try { New-Item -ItemType HardLink -Path $dst -Target $src -ErrorAction Stop | Out-Null; $mode = 'hardlinked' } catch { Copy-Item $src $dst -Force; $mode = 'copied' } }; $userPath = [Environment]::GetEnvironmentVariable('PATH','User'); if ($userPath -notlike \"*$dir*\") { [Environment]::SetEnvironmentVariable('PATH', \"$userPath;$dir\", 'User') }; $env:PATH += \";$dir\"; Write-Host \"Mewo installed ($mode)\""
     echo Mewo installed to %LOCALAPPDATA%\Programs\mewo\mewo.exe
     mewo.exe --version
 

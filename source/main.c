@@ -16,12 +16,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdarg.h>
 
 #define FLAG_PUSH_DASH_DASH_BACK
 #define FLAG_IMPLEMENTATION
 #include "../thirdparty/flag.h"
 #define NOB_IMPLEMENTATION
 #define NOB_STRIP_PREFIX
+#define NOBDEF static inline
 #include "../thirdparty/nob.h"
 
 #include "error.c"
@@ -37,48 +41,107 @@ static void usage(FILE* stream) {
     flag_print_options(stream);
 }
 
-static void split_lines(const char* code, char*** out_lines, size_t* out_count) {
-    size_t capacity = 16;
+static bool read_lines_entire_file(const char* path, char*** out_lines, size_t* out_count) {
+    if (!out_lines || !out_count) return false;
+    *out_lines = NULL;
+    *out_count = 0;
+
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        nob_log(NOB_ERROR, "Could not open file %s: %s", path, strerror(errno));
+        return false;
+    }
+
+    size_t capacity = 256;
     size_t count = 0;
     char** lines = malloc(capacity * sizeof(char*));
     if (!lines) {
-        *out_lines = NULL;
-        *out_count = 0;
-        return;
+        fclose(f);
+        nob_log(NOB_ERROR, "Out of memory allocating lines array for file %s", path);
+        return false;
     }
 
-    const char* start = code;
-    for (const char* p = code; ; p++) {
-        if (*p == '\n' || *p == '\0') {
-            size_t len = p - start;
-            if (len > 0 && start[len - 1] == '\r') len--;
-            
-            char* line = malloc(len + 1);
-            if (line) {
-                memcpy(line, start, len);
-                line[len] = '\0';
-                
-                if (count >= capacity) {
-                    capacity *= 2;
-                    char** new_lines = realloc(lines, capacity * sizeof(char*));
-                    if (!new_lines) break;
-                    lines = new_lines;
-                }
-                lines[count++] = line;
-            }
-            
-            if (*p == '\0') break;
-            start = p + 1;
+    char* line = NULL;
+    size_t len = 0;
+    size_t read;
+
+#ifdef _WIN32
+    #define GETLINE_BUFFER 1024
+    char temp_buf[GETLINE_BUFFER];
+    while (fgets(temp_buf, GETLINE_BUFFER, f)) {
+        size_t line_len = strlen(temp_buf);
+
+        if (line_len > 0 && temp_buf[line_len - 1] == '\r') temp_buf[line_len - 1] = '\0';
+        line_len = strlen(temp_buf);
+
+        line = malloc(line_len + 1);
+        if (!line) {
+            for (size_t i = 0; i < count; i++) free(lines[i]);
+            free(lines);
+            fclose(f);
+            nob_log(NOB_ERROR, "Out of memory reading line from file %s", path);
+            return false;
         }
-    }
+        memcpy(line, temp_buf, line_len + 1);
 
+        if (count >= capacity) {
+            capacity *= 2;
+            char** tmp = realloc(lines, capacity * sizeof(char*));
+            if (!tmp) {
+                for (size_t i = 0; i < count; i++) free(lines[i]);
+                free(line);
+                free(lines);
+                fclose(f);
+                nob_log(NOB_ERROR, "Out of memory expanding lines array for file %s", path);
+                return false;
+            }
+            lines = tmp;
+        }
+
+        lines[count++] = line;
+    }
+#else
+    while ((read = getline(&line, &len, f)) != -1) {
+        if (read > 0 && line[read - 1] == '\n') line[read - 1] = '\0';
+        if (read > 1 && line[read - 2] == '\r') line[read - 2] = '\0';
+
+        if (count >= capacity) {
+            capacity *= 2;
+            char** tmp = realloc(lines, capacity * sizeof(char*));
+            if (!tmp) {
+                for (size_t i = 0; i < count; i++) free(lines[i]);
+                free(line);
+                free(lines);
+                fclose(f);
+                nob_log(NOB_ERROR, "Out of memory expanding lines array for file %s", path);
+                return false;
+            }
+            lines = tmp;
+        }
+        lines[count++] = line;
+        line = NULL;
+        len = 0;
+    }
+    free(line);
+#endif
+
+    fclose(f);
     *out_lines = lines;
     *out_count = count;
+    return true;
+}
+
+static void free_lines(char** lines, size_t count) {
+    if (!lines) return;
+    for (size_t i = 0; i < count; i++) {
+        free(lines[i]);
+    }
+    free(lines);
 }
 
 static Nob_Log_Level current_log_level = NOB_INFO;
 
-void mewo_log_handler(Nob_Log_Level level, const char *fmt, va_list args) {
+void mewo_log_handler(Nob_Log_Level level, const char* fmt, va_list args) {
     if (level < current_log_level) {
         return;
     }
@@ -130,7 +193,7 @@ int main(int argc, char** argv) {
     }
 
     int rest = flag_rest_argc();
-    char **args = flag_rest_argv();
+    char** args = flag_rest_argv();
 
     char* label = NULL;
     if (rest > 0 && strcmp(args[0], "--") == 0) {
@@ -161,26 +224,16 @@ int main(int argc, char** argv) {
         }
     }
 
-    String_Builder sb = {0};
-
     if (!nob_file_exists(*mewofile)) {
         fprintf(stderr, "Error: No Mewofile found in current directory\n");
         return 1;
     }
 
-    if (!read_entire_file(*mewofile, &sb)) {
-        fprintf(stderr, "Error: Failed to read Mewofile\n");
-        return 1;
-    }
-
-    String_View sv = sb_to_sv(sb);
-    const char* code = nob_temp_sv_to_cstr(sv);
-
     char** lines = NULL;
     size_t lines_count = 0;
-    split_lines(code, &lines, &lines_count);
-    if (!lines) {
-        fprintf(stderr, "Error: Failed to split Mewofile into lines\n");
+    if (!read_lines_entire_file(*mewofile, &lines, &lines_count)) {
+        nob_log(NOB_ERROR, "Failed to read Mewofile %s", *mewofile);
+        free_lines(lines, lines_count);
         return 1;
     }
 
@@ -198,6 +251,7 @@ int main(int argc, char** argv) {
 
     if (has_error()) {
         print_error(*mewofile, stderr);
+        free_lines(lines, lines_count);
         return 1;
     }
 
@@ -208,9 +262,11 @@ int main(int argc, char** argv) {
             print_error(*mewofile, stderr);
         }
         free_ast(ast);
+        free_lines(lines, lines_count);
         return 1;
     }
 
     free_ast(ast);
+    free_lines(lines, lines_count);
     return 0;
 }

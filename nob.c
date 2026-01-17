@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     NOB_GO_REBUILD_URSELF(argc, argv);
 
     bool release = argc >= 2 && strcmp(argv[1], "release") == 0;
@@ -12,8 +12,8 @@ int main(int argc, char **argv) {
 
 #ifdef _WIN32
     if (release) {
-        const char *vs_path = "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools";
-        const char *bat_path = "build_release.bat";
+        const char* vs_path = "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools";
+        const char* bat_path = "build_release.bat";
 
         FILE *f = fopen(bat_path, "w");
         if (!f) {

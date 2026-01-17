@@ -24,6 +24,7 @@ typedef enum {
     STMT_INDEX_ACCESS,
     STMT_INDEX_ASSIGN,
     STMT_LABEL,
+    STMT_LABEL_ALIAS,
     STMT_COMMAND,
     STMT_IF,
     STMT_ELSE,
@@ -57,6 +58,11 @@ struct Stmt {
             char* index;
             char* value;
         } index_assign;
+        struct {
+            char* name;
+            char** targets;
+            int target_count;
+        } label_alias;
         struct {
             char* name;
         } label;
@@ -93,7 +99,7 @@ static char* str_trim(const char* s) {
     return result;
 }
 
-static bool ends_with_continuation(const char *s) {
+static bool ends_with_continuation(const char* s) {
     size_t len = strlen(s);
     if (len == 0) return false;
     if (s[len - 1] != '\\') return false;
@@ -169,17 +175,17 @@ static const char* find_unquoted_char(const char* str, char c) {
     return NULL;
 }
 
-bool is_single_identifier_before_eq(const char *s) {
-    const char *eq = strchr(s, '=');
+bool is_single_identifier_before_eq(const char* s) {
+    const char* eq = strchr(s, '=');
     if (!eq) return false;
 
-    const char *p = eq;
+    const char* p = eq;
     while (p > s && isspace(*(p-1))) p--;
 
-    const char *start = p;
-    while (start > s && (isalnum(*(start-1)) || *(start-1) == '_')) start--;
+    const char* start = p;
+    while (start > s && (isalnum(*(start-1)) || *(start-1) == '_' || *(start-1) == '-')) start--;
 
-    for (const char *c = s; c < start; c++) {
+    for (const char* c = s; c < start; c++) {
         if (!isspace(*c)) return false;
     }
 
@@ -196,7 +202,7 @@ static Stmt* parse_attr(const char* line, size_t line_number) {
     p++;
     
     const char* name_start = p;
-    while (*p && *p != '(' && !isspace(*p)) p++;
+    while (*p && *p != '(' && *p != ':' && !isspace(*p)) p++;
     
     size_t name_len = p - name_start;
     if (name_len == 0) {
@@ -265,6 +271,25 @@ static Stmt* parse_attr(const char* line, size_t line_number) {
                 if (*p == ',') p++;
             }
         }
+    } else if (*p == ':') {
+        p++;
+        while (*p && isspace(*p)) p++;
+    } else {
+        const char* param_start = p;
+        while (*p && isspace(*p)) p++;
+        if (*p) {
+            param_start = p;
+            while (*p) p++;
+            size_t param_len = p - param_start;
+            char* param_str = malloc(param_len + 1);
+            memcpy(param_str, param_start, param_len);
+            param_str[param_len] = '\0';
+            Stmt* param = calloc(1, sizeof(Stmt));
+            param->type = STMT_COMMAND;
+            param->command.raw_line = param_str;
+            stmt->attr.parameters[0] = param;
+            stmt->attr.param_count = 1;
+        }
     }
     
     return stmt;
@@ -295,14 +320,14 @@ static Stmt* parse_var_assign(const char* line, size_t line_number) {
     const char* check_end = bracket_open ? bracket_open : (name_end + 1);
     const char* p = name_start;
     
-    if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_')) {
+    if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_' || *p == '-')) {
         return NULL;
     }
     p++;
     
     while (p < check_end) {
         if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || 
-              (*p >= '0' && *p <= '9') || *p == '_')) {
+              (*p >= '0' && *p <= '9') || *p == '_' || *p == '-')) {
             return NULL;
         }
         p++;
@@ -342,26 +367,72 @@ static Stmt* parse_var_assign(const char* line, size_t line_number) {
 static Stmt* parse_label(const char* line, size_t line_number) {
     const char* colon = strchr(line, ':');
     if (!colon) return NULL;
-    
+
     const char* name_start = line;
-    while (*name_start && isspace(*name_start)) name_start++;
-    
+    while (*name_start && isspace((unsigned char)*name_start)) name_start++;
+
     const char* name_end = colon;
-    while (name_end > name_start && isspace(*(name_end - 1))) name_end--;
-    
+    while (name_end > name_start && isspace((unsigned char)*(name_end - 1)))
+        name_end--;
+
+    size_t name_len;
     if (name_end <= name_start) {
-        set_error(ERROR_SYNTAX, "missing label name", line_number);
-        return NULL;
+        name_len = 0;
+    } else {
+        name_len = (size_t)(name_end - name_start);
     }
-    
-    size_t name_len = name_end - name_start;
-    
+
+    const char* p = colon + 1;
+    while (*p && isspace((unsigned char)*p)) p++;
+
     Stmt* stmt = calloc(1, sizeof(Stmt));
-    stmt->type = STMT_LABEL;
-    stmt->label.name = malloc(name_len + 1);
-    memcpy(stmt->label.name, name_start, name_len);
-    stmt->label.name[name_len] = '\0';
-    
+    if (!stmt) return NULL;
+
+    if (*p == '\0') {
+        stmt->type = STMT_LABEL;
+        stmt->label.name = malloc(name_len + 1);
+        memcpy(stmt->label.name, name_start, name_len);
+        stmt->label.name[name_len] = '\0';
+        return stmt;
+    }
+
+    stmt->type = STMT_LABEL_ALIAS;
+
+    stmt->label_alias.name = malloc(name_len + 1);
+    memcpy(stmt->label_alias.name, name_start, name_len);
+    stmt->label_alias.name[name_len] = '\0';
+
+    size_t cap = 2;
+    stmt->label_alias.targets = malloc(sizeof(char*) * cap);
+    stmt->label_alias.target_count = 0;
+
+    while (*p) {
+        if (!(*p == '_' || *p == '-' || isalpha((unsigned char)*p))) {
+            set_error(ERROR_SYNTAX, "invalid label alias", line_number);
+            return NULL;
+        }
+
+        const char* start = p;
+        while (*p && (*p == '_' || *p == '-' || isalnum((unsigned char)*p)))
+            p++;
+
+        size_t len = (size_t)(p - start);
+
+        if (stmt->label_alias.target_count == cap) {
+            cap *= 2;
+            stmt->label_alias.targets =
+                realloc(stmt->label_alias.targets, sizeof(char*) * cap);
+        }
+
+        char* t = malloc(len + 1);
+        memcpy(t, start, len);
+        t[len] = '\0';
+
+        stmt->label_alias.targets[stmt->label_alias.target_count++] = t;
+
+        while (*p && isspace((unsigned char)*p)) p++;
+    }
+
     return stmt;
 }
 
@@ -469,7 +540,7 @@ AST* parse(const char** lines, size_t lines_count) {
                 add_stmt(ast, attr);
                 
                 after_attrs++;
-                while (*after_attrs && *after_attrs != '(' && !isspace(*after_attrs)) after_attrs++;
+                while (*after_attrs && *after_attrs != '(' && *after_attrs != ':' && !isspace(*after_attrs)) after_attrs++;
                 if (*after_attrs == '(') {
                     int depth = 1;
                     after_attrs++;
@@ -479,7 +550,6 @@ AST* parse(const char** lines, size_t lines_count) {
                         after_attrs++;
                     }
                 }
-                if (*after_attrs == ':') after_attrs++;
                 while (*after_attrs && isspace(*after_attrs)) after_attrs++;
             } else {
                 break;
@@ -523,7 +593,7 @@ AST* parse(const char** lines, size_t lines_count) {
                 free(line_no_comment);
                 return ast;
             }
-        } else if (starts_with(after_attrs, "goto ") || strcmp(after_attrs, "goto") == 0) {
+        } else if ((starts_with(after_attrs, "goto ") || strcmp(after_attrs, "goto") == 0) && indent == 0) {
             const char* target = after_attrs + 4;
             while (*target && isspace(*target)) target++;
             if (*target == '\0') {
@@ -532,7 +602,7 @@ AST* parse(const char** lines, size_t lines_count) {
                 return ast;
             }
             const char* p = target;
-            if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_') {
+            if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_' || *p == '-') {
                 stmt = calloc(1, sizeof(Stmt));
                 stmt->type = STMT_GOTO;
                 stmt->goto_stmt.target = str_trim(target);
@@ -541,7 +611,7 @@ AST* parse(const char** lines, size_t lines_count) {
                 stmt->type = STMT_COMMAND;
                 stmt->command.raw_line = str_dup(after_attrs);
             }
-        } else if (starts_with(after_attrs, "call ") || strcmp(after_attrs, "call") == 0) {
+        } else if ((starts_with(after_attrs, "call ") || strcmp(after_attrs, "call") == 0) && indent == 0) {
             const char* target = after_attrs + 4;
             while (*target && isspace(*target)) target++;
             if (*target == '\0') {
@@ -550,7 +620,7 @@ AST* parse(const char** lines, size_t lines_count) {
                 return ast;
             }
             const char* p = target;
-            if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_') {
+            if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_' || *p == '-') {
                 stmt = calloc(1, sizeof(Stmt));
                 stmt->type = STMT_CALL;
                 stmt->call_stmt.target = str_trim(target);
@@ -560,19 +630,19 @@ AST* parse(const char** lines, size_t lines_count) {
                 stmt->command.raw_line = str_dup(after_attrs);
             }
         } else {
-            char *acc = str_dup(after_attrs);
+            char* acc = str_dup(after_attrs);
 
             while (ends_with_continuation(acc) && i + 1 < lines_count) {
                 acc[strlen(acc) - 1] = '\0';
 
                 i++;
-                char *next = strip_comment(lines[i]);
-                char *t = str_trim(next);
+                char* next = strip_comment(lines[i]);
+                char* t = str_trim(next);
 
                 size_t old_len = strlen(acc);
                 size_t t_len = strlen(t);
 
-                char *new_acc = malloc(old_len + 1 + t_len + 1);
+                char* new_acc = malloc(old_len + 1 + t_len + 1);
                 memcpy(new_acc, acc, old_len);
                 new_acc[old_len] = ' ';
                 memcpy(new_acc + old_len + 1, t, t_len + 1);
@@ -626,6 +696,13 @@ void free_stmt(Stmt* stmt) {
             break;
         case STMT_LABEL:
             free(stmt->label.name);
+            break;
+        case STMT_LABEL_ALIAS:
+            free(stmt->label_alias.name);
+            for (size_t k = 0; k < stmt->label_alias.target_count; k++) {
+                free(stmt->label_alias.targets[k]);
+            }
+            free(stmt->label_alias.targets);
             break;
         case STMT_COMMAND:
             free(stmt->command.raw_line);
@@ -684,6 +761,16 @@ void print_ast_label(AST* ast, const char* target_label) {
         switch (stmt->type) {
             case STMT_LABEL:
                 printf("%s:\n", stmt->label.name);
+                break;
+            case STMT_LABEL_ALIAS:
+                printf("%s: ", stmt->label_alias.name);
+                for (size_t k = 0; k < stmt->label_alias.target_count; k++) {
+                    if (k > 0) printf(" ");
+                    printf("%s", stmt->label_alias.targets[k]);
+                }
+                for (size_t k = 0; k < stmt->label_alias.target_count; k++) {
+                    print_ast_label(ast, stmt->label_alias.targets[k]);
+                }
                 break;
             case STMT_COMMAND: {
                 const char* cmd = str_trim_ws(stmt->command.raw_line);
@@ -751,7 +838,14 @@ void print_ast(AST* ast) {
                     }
                     printf(")");
                 }
-                printf("\n");
+                if (ast->stmts_count > i + 1) {
+                    Stmt* next_stmt = ast->stmts[i + 1];
+                    if (!(next_stmt->type == STMT_LABEL && next_stmt->label.name[0] == '\0')) {
+                        printf("\n");
+                    }
+                } else {
+                    printf("\n");
+                }
                 break;
             case STMT_VAR_ASSIGN:
                 printf("%s = %s\n", stmt->var_assign.name, stmt->var_assign.value);
@@ -764,6 +858,14 @@ void print_ast(AST* ast) {
                 break;
             case STMT_LABEL:
                 printf("%s:\n", stmt->label.name);
+                break;
+            case STMT_LABEL_ALIAS:
+                printf("%s: ", stmt->label_alias.name);
+                for (size_t k = 0; k < stmt->label_alias.target_count; k++) {
+                    if (k > 0) printf(" ");
+                    printf("%s", stmt->label_alias.targets[k]);
+                }
+                printf("\n");
                 break;
             case STMT_COMMAND:
                 printf("%s\n", stmt->command.raw_line);
@@ -787,5 +889,50 @@ void print_ast(AST* ast) {
                 printf("Unknown statement type\n");
                 break;
         }
+    }
+}
+
+void print_stmt(Stmt* stmt) {
+    if (!stmt) return;
+    
+    switch (stmt->type) {
+        case STMT_ATTR:
+            printf("Attribute: %s\n", stmt->attr.name);
+            break;
+        case STMT_VAR_ASSIGN:
+            printf("Var Assign: %s = %s\n", stmt->var_assign.name, stmt->var_assign.value);
+            break;
+        case STMT_INDEX_ACCESS:
+            printf("Index Access: %s[%s]\n", stmt->index_access.name, stmt->index_access.index);
+            break;
+        case STMT_INDEX_ASSIGN:
+            printf("Index Assign: %s[%s] = %s\n", stmt->index_assign.name, stmt->index_assign.index, stmt->index_assign.value);
+            break;
+        case STMT_LABEL:
+            printf("Label: %s\n", stmt->label.name);
+            break;
+        case STMT_LABEL_ALIAS:
+            printf("%s: ", stmt->label_alias.name);
+            for (size_t k = 0; k < stmt->label_alias.target_count; k++) {
+                if (k > 0) printf(" ");
+                printf("%s", stmt->label_alias.targets[k]);
+            }
+            printf("\n");
+            break;
+        case STMT_COMMAND:
+            printf("Command: %s\n", stmt->command.raw_line);
+            break;
+        case STMT_IF:
+            printf("If Condition: %s\n", stmt->if_stmt.condition);
+            break;
+        case STMT_GOTO:
+            printf("Goto: %s\n", stmt->goto_stmt.target);
+            break;
+        case STMT_CALL:
+            printf("Call: %s\n", stmt->call_stmt.target);
+            break;
+        default:
+            printf("Unknown statement type\n");
+            break;
     }
 }

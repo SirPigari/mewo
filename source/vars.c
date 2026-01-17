@@ -55,7 +55,7 @@
             }
 
             int utf8_len = WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, NULL, 0, NULL, NULL);
-            char *utf8_buf = malloc(utf8_len);
+            char* utf8_buf = malloc(utf8_len);
             WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, utf8_buf, utf8_len, NULL, NULL);
 
             nob_log(NOB_ERROR, "%lu: %s", err, utf8_buf);
@@ -1008,6 +1008,184 @@ static char* interp_internal(const char* input, size_t line_number, bool* error)
                 continue;
             }
 
+            if (strncmp(interpolated_expr, "#replace(", 9) == 0 &&
+                interpolated_expr[strlen(interpolated_expr) - 1] == ')') {
+
+                size_t content_len = strlen(interpolated_expr) - 10;
+                char* content = malloc(content_len + 1);
+                if (!content) {
+                    set_error(ERROR_MEMORY, "Out of memory", line_number);
+                    free(interpolated_expr);
+                    ib_free(&ib);
+                    *error = true;
+                    return NULL;
+                }
+
+                memcpy(content, interpolated_expr + 9, content_len);
+                content[content_len] = '\0';
+                free(interpolated_expr);
+
+                char* args[3] = {0};
+                char* out = NULL;
+                char* p2 = content;
+
+                for (int i = 0; i < 3; i++) {
+                    while (*p2 == ' ' || *p2 == '\t') p2++;
+
+                    if (*p2 == '"') {
+                        p2++;
+                        char* start = p2;
+                        size_t len = 0;
+                        int esc = 0;
+
+                        while (*p2) {
+                            if (esc) esc = 0;
+                            else if (*p2 == '\\') esc = 1;
+                            else if (*p2 == '"') break;
+                            p2++;
+                            len++;
+                        }
+
+                        if (*p2 != '"') {
+                            set_error(ERROR_SYNTAX, "Unterminated string in #replace()", line_number);
+                            *error = true;
+                            goto replace_cleanup;
+                        }
+
+                        args[i] = malloc(len + 1);
+                        if (!args[i]) {
+                            set_error(ERROR_MEMORY, "Out of memory", line_number);
+                            *error = true;
+                            goto replace_cleanup;
+                        }
+
+                        char* d = args[i];
+                        char* s = start;
+                        char* end = start + len;
+                        while (s < end) {
+                            if (*s == '\\' && s + 1 < end) s++;
+                            *d++ = *s++;
+                        }
+                        *d = '\0';
+
+                        p2++;
+                    } else {
+                        char* start = p2;
+                        while (*p2 && *p2 != ',' && *p2 != ')') p2++;
+
+                        size_t len = p2 - start;
+                        while (len > 0 && (start[len - 1] == ' ' || start[len - 1] == '\t')) len--;
+
+                        char name[128];
+                        if (len >= sizeof(name)) {
+                            set_error(ERROR_SYNTAX, "Variable name too long in #replace()", line_number);
+                            *error = true;
+                            goto replace_cleanup;
+                        }
+
+                        memcpy(name, start, len);
+                        name[len] = '\0';
+
+                        Variable* v = vars_get(name);
+                        if (!v || v->type != VAR_STRING) {
+                            set_error(ERROR_RUNTIME, "Unknown or non-string variable in #replace()", line_number);
+                            *error = true;
+                            goto replace_cleanup;
+                        }
+
+                        args[i] = str_dup(v->string_value ? v->string_value : "");
+                        if (!args[i]) {
+                            set_error(ERROR_MEMORY, "Out of memory", line_number);
+                            *error = true;
+                            goto replace_cleanup;
+                        }
+                    }
+
+                    while (*p2 == ' ' || *p2 == '\t') p2++;
+                    if (i < 2) {
+                        if (*p2 != ',') {
+                            set_error(ERROR_SYNTAX, "Expected ',' in #replace()", line_number);
+                            *error = true;
+                            goto replace_cleanup;
+                        }
+                        p2++;
+                    }
+                }
+
+                const char* src  = args[0];
+                const char* from = args[1];
+                const char* to   = args[2];
+
+                size_t from_len = strlen(from);
+                size_t to_len   = strlen(to);
+
+                if (from_len == 0) {
+                    set_error(ERROR_RUNTIME, "#replace(): 'from' must not be empty", line_number);
+                    *error = true;
+                    goto replace_cleanup;
+                }
+
+                size_t out_cap = strlen(src) + 1;
+                out = malloc(out_cap);
+                if (!out) {
+                    set_error(ERROR_MEMORY, "Out of memory", line_number);
+                    *error = true;
+                    goto replace_cleanup;
+                }
+
+                out[0] = '\0';
+
+                const char* cur = src;
+                while (1) {
+                    const char* pos = strstr(cur, from);
+                    if (!pos) {
+                        size_t need = strlen(out) + strlen(cur) + 1;
+                        if (need > out_cap) {
+                            out_cap = need;
+                            char* tmp = realloc(out, out_cap);
+                            if (!tmp) {
+                                set_error(ERROR_MEMORY, "Out of memory", line_number);
+                                *error = true;
+                                goto replace_cleanup;
+                            }
+                            out = tmp;
+                        }
+                        strcat(out, cur);
+                        break;
+                    }
+
+                    size_t prefix = pos - cur;
+                    size_t need = strlen(out) + prefix + to_len + 1;
+                    if (need > out_cap) {
+                        out_cap = need * 2;
+                        char* tmp = realloc(out, out_cap);
+                        if (!tmp) {
+                            set_error(ERROR_MEMORY, "Out of memory", line_number);
+                            *error = true;
+                            goto replace_cleanup;
+                        }
+                        out = tmp;
+                    }
+
+                    strncat(out, cur, prefix);
+                    strcat(out, to);
+                    cur = pos + from_len;
+                }
+
+                if (!ib_append_str(&ib, out)) {
+                    set_error(ERROR_MEMORY, "Out of memory during interpolation", line_number);
+                    *error = true;
+                    goto replace_cleanup;
+                }
+
+            replace_cleanup:
+                free(out);
+                for (int i = 0; i < 3; i++) free(args[i]);
+                free(content);
+                p = after;
+                continue;
+            }
+
             if (strncmp(interpolated_expr, "#sizeof(", 8) == 0 &&
                 interpolated_expr[strlen(interpolated_expr) - 1] == ')') {
 
@@ -1307,6 +1485,53 @@ char* interpolate(const char* input, size_t line_number) {
     return interp_internal(input, line_number, &error);
 }
 
+static char* unescape_string(const char* input, size_t* out_len, size_t line_number) {
+    if (!input) {
+        *out_len = 0;
+        return str_dup("");
+    }
+    
+    size_t input_len = strlen(input);
+    char* result = malloc(input_len + 1);
+    if (!result) {
+        set_error(ERROR_MEMORY, "Out of memory during string unescaping", line_number);
+        return NULL;
+    }
+    
+    size_t j = 0;
+    for (size_t i = 0; i < input_len; i++) {
+        if (input[i] == '\\' && i + 1 < input_len) {
+            i++;
+            switch (input[i]) {
+                case '"':
+                    result[j++] = '"';
+                    break;
+                case '\\':
+                    result[j++] = '\\';
+                    break;
+                case 'n':
+                    result[j++] = '\n';
+                    break;
+                case 't':
+                    result[j++] = '\t';
+                    break;
+                case 'r':
+                    result[j++] = '\r';
+                    break;
+                default:
+                    result[j++] = '\\';
+                    result[j++] = input[i];
+                    break;
+            }
+        } else {
+            result[j++] = input[i];
+        }
+    }
+    result[j] = '\0';
+    *out_len = j;
+    return result;
+}
+
 static const char* skip_ws(const char* s) {
     while (*s && (*s == ' ' || *s == '\t')) s++;
     return s;
@@ -1370,21 +1595,29 @@ Variable* parse_value(const char* value_str, size_t line_number) {
     if (*p == '"' || *p == '\'') {
         char quote = *p++;
         const char* start = p;
-        while (*p && *p != quote) p++;
-        
+        while (*p && (*p != quote || (p > value_str && *(p-1) == '\\'))) {
+            p++;
+        }
         if (*p != quote) {
             set_error(ERROR_SYNTAX, "Unterminated string literal", line_number);
             return NULL;
         }
         
         size_t len = p - start;
-        char* str_val = malloc(len + 1);
-        if (!str_val) {
+        char* raw_str = malloc(len + 1);
+        if (!raw_str) {
             set_error(ERROR_MEMORY, "Out of memory", line_number);
             return NULL;
         }
-        memcpy(str_val, start, len);
-        str_val[len] = '\0';
+        memcpy(raw_str, start, len);
+        raw_str[len] = '\0';
+        
+        size_t unescaped_len;
+        char* str_val = unescape_string(raw_str, &unescaped_len, line_number);
+        free(raw_str);
+        if (!str_val) {
+            return NULL;
+        }
         
         Variable* var = var_new_string(str_val);
         free(str_val);

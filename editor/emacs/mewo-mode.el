@@ -112,9 +112,10 @@
     ;; Labels at start of line (name:)
     ("^\\s-*\\([a-zA-Z_][a-zA-Z0-9_-]*\\)\\s-*:" 1 'mewo-label-face)
 
-    ;; Conditionals: #if(...), #else, #endif
+    ;; Conditionals: #if(...), #else, #endif, #exists(...)
     ("#if\\s-*([^)]*)" . 'mewo-conditional-face)
     ("#\\(else\\|endif\\)\\b" . 'mewo-conditional-face)
+    ("#exists\\s-*([^)]*)" . 'mewo-conditional-face)
 
     ;; Platform conditionals
     ("#\\(windows\\|win32\\|linux\\|macos\\|darwin\\|unix\\)\\b" . 'mewo-conditional-face)
