@@ -35,6 +35,8 @@
 
 static const int VERSION = 0x0100;
 
+#define BUILD_TIME __DATE__ " " __TIME__
+
 static void usage(FILE* stream) {
     fprintf(stream, "Usage: mewo [LABEL] [OPTIONS]\n");
     fprintf(stream, "OPTIONS:\n");
@@ -181,6 +183,12 @@ int main(int argc, char** argv) {
 
     if (*version) {
         printf("mewo version %d.%d\n", VERSION >> 8, VERSION & 0xFF);
+        printf("Copyright (c) 2026 Markofwitch\n");
+        #ifdef MEWO_RELEASE
+        printf("Release build at %s\n", BUILD_TIME);
+        #else
+        printf("Development build at %s\n", BUILD_TIME);
+        #endif
         return 0;
     }
 
