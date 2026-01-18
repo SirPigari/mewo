@@ -17,6 +17,7 @@
  */
 
 #include <ctype.h>
+#include <stdbool.h>
 
 typedef enum {
     STMT_ATTR,
@@ -175,9 +176,9 @@ static const char* find_unquoted_char(const char* str, char c) {
     return NULL;
 }
 
-bool is_single_identifier_before_eq(const char* s) {
-    const char* eq = strchr(s, '=');
-    if (!eq) return false;
+bool is_single_identifier_before_char(const char* s, char c, bool or_none) {
+    const char* eq = strchr(s, c);
+    if (!eq) return or_none;
 
     const char* p = eq;
     while (p > s && isspace(*(p-1))) p--;
@@ -189,7 +190,7 @@ bool is_single_identifier_before_eq(const char* s) {
         if (!isspace(*c)) return false;
     }
 
-    if (start == p) return false;
+    if (start == p) return or_none;
 
     return true;
 }
@@ -581,13 +582,13 @@ AST* parse(const char** lines, size_t lines_count) {
                 free(line_no_comment);
                 return ast;
             }
-        } else if (find_unquoted_char(after_attrs, ':') && indent == 0) {
+        } else if (find_unquoted_char(after_attrs, ':') && indent == 0 && is_single_identifier_before_char(after_attrs, ':', true)) {
             stmt = parse_label(after_attrs, i + 1);
             if (!stmt && has_error()) {
                 free(line_no_comment);
                 return ast;
             }
-        } else if (find_unquoted_char(after_attrs, '=') && is_single_identifier_before_eq(after_attrs)) {
+        } else if (find_unquoted_char(after_attrs, '=') && is_single_identifier_before_char(after_attrs, '=', false)) {
             stmt = parse_var_assign(after_attrs, i + 1);
             if (!stmt && has_error()) {
                 free(line_no_comment);

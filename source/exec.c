@@ -32,6 +32,7 @@
 typedef struct {
     AST* ast;
     bool dry_run;
+    bool echo;
     char* default_shell;
     size_t current_index;
     
@@ -65,10 +66,11 @@ static bool exec_top_level_except_calls_and_gotos(ExecContext* ctx);
 static int find_label_index(ExecContext* ctx, const char* name);
 static bool is_label_name(ExecContext* ctx, const char* name);
 
-static void ctx_init(ExecContext* ctx, AST* ast, bool dry_run, const char* shell) {
+static void ctx_init(ExecContext* ctx, AST* ast, bool dry_run, bool echo, const char* shell) {
     memset(ctx, 0, sizeof(ExecContext));
     ctx->ast = ast;
     ctx->dry_run = dry_run;
+    ctx->echo = echo;
     ctx->default_shell = shell ? str_dup(shell) : NULL;
     ctx->current_label_index = -1;
 }
@@ -132,7 +134,18 @@ static bool ctx_pop_return(ExecContext* ctx, size_t* out_index) {
     return true;
 }
 
+static void ctx_clear_pending_attrs(ExecContext* ctx) {
+    ctx->pending_attrs.count = 0;
+}
+
 static void ctx_add_pending_attr(ExecContext* ctx, Stmt* attr) {
+    if (ctx->pending_attrs.count > 0) {
+        Stmt* last_attr = ctx->pending_attrs.attrs[ctx->pending_attrs.count - 1];
+        if (last_attr->indent_level == attr->indent_level) {
+            ctx_clear_pending_attrs(ctx);
+        }
+    }
+    
     if (ctx->pending_attrs.count >= ctx->pending_attrs.capacity) {
         size_t new_cap = ctx->pending_attrs.capacity == 0 ? 4 : ctx->pending_attrs.capacity * 2;
         Stmt** new_attrs = realloc(ctx->pending_attrs.attrs, new_cap * sizeof(Stmt*));
@@ -141,10 +154,6 @@ static void ctx_add_pending_attr(ExecContext* ctx, Stmt* attr) {
         ctx->pending_attrs.capacity = new_cap;
     }
     ctx->pending_attrs.attrs[ctx->pending_attrs.count++] = attr;
-}
-
-static void ctx_clear_pending_attrs(ExecContext* ctx) {
-    ctx->pending_attrs.count = 0;
 }
 
 static int find_label_index(ExecContext* ctx, const char* name) {
@@ -258,7 +267,7 @@ static bool check_conditional_attr(Stmt* attr, size_t line_number) {
         return is_platform_windows();
     }
     if (strcmp(name, "linux") == 0) {
-        return is_platform_linux();
+        return false;
     }
     if (strcmp(name, "macos") == 0 || strcmp(name, "darwin") == 0) {
         return is_platform_macos();
@@ -352,11 +361,11 @@ static bool is_conditional_attr(const char* name) {
            strcmp(name, "exists") == 0;
 }
 
-static bool check_pending_conditionals(ExecContext* ctx) {
-    for (size_t i = 0; i < ctx->pending_attrs.count; i++) {
-        Stmt* attr = ctx->pending_attrs.attrs[i];
-        if (is_conditional_attr(attr->attr.name)) {
-            if (!check_conditional_attr(attr, 0)) { // TODO: pass proper line number
+static bool check_pending_conditionals(ExecContext* ctx, Stmt* stmt) {
+    if (ctx->pending_attrs.count > 0) {
+        Stmt* attr = ctx->pending_attrs.attrs[ctx->pending_attrs.count - 1];
+        if (is_conditional_attr(attr->attr.name) && attr->indent_level <= stmt->indent_level) {
+            if (!check_conditional_attr(attr, stmt->line_number)) {
                 return false;
             }
         }
@@ -494,12 +503,24 @@ static bool exec_command(ExecContext* ctx, const char* raw_cmd, size_t line_numb
             char buffer[1024];
             snprintf(buffer, sizeof(buffer), use_shell, cmd);
             nob_cmd_append(&nob_cmd, buffer);
+            if (ctx->echo) {
+                printf("%s\n", buffer);
+            }
         } else {
             #ifdef _WIN32
                     nob_cmd_append(&nob_cmd, use_shell, "/c", cmd);
             #else
                     nob_cmd_append(&nob_cmd, use_shell, "-c", cmd);
             #endif
+            if (ctx->echo) {
+                printf("%s %s %s\n", use_shell,
+                       #ifdef _WIN32
+                               "/c",
+                       #else
+                               "-c",
+                       #endif
+                       cmd);
+            }
         }
         
         if (attrs.save_stream && attrs.save_var) {
@@ -532,12 +553,18 @@ static bool exec_command(ExecContext* ctx, const char* raw_cmd, size_t line_numb
             nob_delete_file(temp_file);
         } else {
             Nob_Proc proc = nob_cmd_run_async(nob_cmd);
+            if (ctx->echo) {
+                printf("[async] %s\n", cmd);
+            }
             success = nob_proc_wait(proc);
         }
         
         cmd_free(nob_cmd);
         exit_code = success ? 0 : 1;
     } else {
+        if (ctx->echo) {
+            printf("%s\n", cmd);
+        }
         exit_code = system(cmd);
 #ifdef _WIN32
         success = (exit_code == 0);
@@ -724,9 +751,9 @@ static bool eval_condition(const char* condition, size_t line_number, bool* resu
 
 static bool exec_stmt(ExecContext* ctx, Stmt* stmt, size_t stmt_index) {
     size_t line_number = stmt->line_number;
-    
+
     if (stmt->type != STMT_ATTR && ctx->pending_attrs.count > 0) {
-        if (!check_pending_conditionals(ctx)) {
+        if (!check_pending_conditionals(ctx, stmt)) {
             ctx_clear_pending_attrs(ctx);
             return true;
         }
@@ -776,6 +803,9 @@ static bool exec_stmt(ExecContext* ctx, Stmt* stmt, size_t stmt_index) {
                     }
                 }
                 return true;
+            }
+            if (is_conditional_attr(stmt->attr.name)) {
+                ctx_clear_pending_attrs(ctx);
             }
             ctx_add_pending_attr(ctx, stmt);
             return true;
@@ -1040,16 +1070,17 @@ static bool exec_top_level(ExecContext* ctx) {
     
     while (i < ctx->ast->stmts_count) {
         Stmt* stmt = ctx->ast->stmts[i];
-        
+
         if ((stmt->type == STMT_LABEL || stmt->type == STMT_LABEL_ALIAS) && stmt->indent_level == 0) {
             if (stmt->type == STMT_LABEL && stmt->label.name[0] == '\0') {
                 size_t end = find_label_end(ctx, i);
-                if (!exec_range(ctx, i + 1, end, 1)) {
-                    return false;
+                if (check_pending_conditionals(ctx, stmt)) {
+                    if (!exec_range(ctx, i + 1, end, 1)) {
+                        return false;
+                    }
                 }
-            } else {
-                ctx_clear_pending_attrs(ctx);
             }
+            ctx_clear_pending_attrs(ctx);
             i = find_label_end(ctx, i);
             continue;
         }
@@ -1131,17 +1162,17 @@ static bool exec_top_level_except_calls_and_gotos(ExecContext* ctx) {
     
     while (i < ctx->ast->stmts_count) {
         Stmt* stmt = ctx->ast->stmts[i];
-        
+
         if ((stmt->type == STMT_LABEL || stmt->type == STMT_LABEL_ALIAS) && stmt->indent_level == 0) {
             if (stmt->type == STMT_LABEL && stmt->label.name[0] == '\0') {
-                // Execute empty label body with pending attrs
                 size_t end = find_label_end(ctx, i);
-                if (!exec_range(ctx, i + 1, end, 1)) {
-                    return false;
+                if (check_pending_conditionals(ctx, stmt)) {
+                    if (!exec_range(ctx, i + 1, end, 1)) {
+                        return false;
+                    }
                 }
-            } else {
-                ctx_clear_pending_attrs(ctx);
             }
+            ctx_clear_pending_attrs(ctx);
             i = find_label_end(ctx, i);
             continue;
         }
@@ -1239,7 +1270,7 @@ static bool exec_top_level_except_calls_and_gotos(ExecContext* ctx) {
  * Returns:
  *   true on success, false on error (check has_error() / print_error())
  */
-bool execute(AST* ast, const char* label, bool dry_run, const char* shell,
+bool execute(AST* ast, const char* label, bool dry_run, bool echo, const char* shell,
              const char** enabled_features, size_t enabled_count,
              const char** disabled_features, size_t disabled_count) {
     if (!ast) {
@@ -1248,7 +1279,7 @@ bool execute(AST* ast, const char* label, bool dry_run, const char* shell,
     }
     
     ExecContext ctx;
-    ctx_init(&ctx, ast, dry_run, shell);
+    ctx_init(&ctx, ast, dry_run, echo, shell);
     
     vars_init();
     features_init();
@@ -1281,10 +1312,10 @@ bool execute(AST* ast, const char* label, bool dry_run, const char* shell,
     return success;
 }
 
-bool execute_and_cleanup(AST* ast, const char* label, bool dry_run, const char* shell,
+bool execute_and_cleanup(AST* ast, const char* label, bool dry_run, bool echo, const char* shell,
                          const char** enabled_features, size_t enabled_count,
                          const char** disabled_features, size_t disabled_count) {
-    bool result = execute(ast, label, dry_run, shell, 
+    bool result = execute(ast, label, dry_run, echo, shell, 
                           enabled_features, enabled_count,
                           disabled_features, disabled_count);
     vars_free();

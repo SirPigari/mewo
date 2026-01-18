@@ -38,7 +38,7 @@ static char* str_dup(const char* s) {
 }
 
 void set_error(ErrorType type, const char* message, size_t line_number) {
-    free(g_error.message);  // Free previous error message to avoid leak
+    free(g_error.message);
     g_error.type = type;
     g_error.message = str_dup(message);
     g_error.line_number = line_number;

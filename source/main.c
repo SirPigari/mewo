@@ -73,8 +73,9 @@ static bool read_lines_entire_file(const char* path, char*** out_lines, size_t* 
     while (fgets(temp_buf, GETLINE_BUFFER, f)) {
         size_t line_len = strlen(temp_buf);
 
-        if (line_len > 0 && temp_buf[line_len - 1] == '\r') temp_buf[line_len - 1] = '\0';
-        line_len = strlen(temp_buf);
+        while (line_len > 0 && (temp_buf[line_len - 1] == '\r' || temp_buf[line_len - 1] == '\n')) {
+            temp_buf[--line_len] = '\0';
+        }
 
         line = malloc(line_len + 1);
         if (!line) {
@@ -161,15 +162,16 @@ void mewo_log_handler(Nob_Log_Level level, const char* fmt, va_list args) {
 }
 
 int main(int argc, char** argv) {
-    bool* help    = flag_bool("help", false, "Show help", .short_name='h');
-    bool* version = flag_bool("version", false, "Show version", .short_name='v');
-    Flag_List* overrides = flag_list("D", "Override variable (use -Dname=value or -D name=value)");
+    bool*  help                 = flag_bool("help", false, "Show help", .short_name='h');
+    bool*  version              = flag_bool("version", false, "Show version", .short_name='v');
+    Flag_List* overrides        = flag_list("D", "Override variable (use -Dname=value or -D name=value)");
     Flag_List* features_enable  = flag_list("F", "Enable feature (use +Fname or +F name)", .plus_sign=true);
     Flag_List* features_disable = flag_list("F", "Disable feature (use -Fname or -F name)");
-    char** shell   = flag_str("shell", "", "Default shell");
-    char** mewofile = flag_str("mewofile", "Mewofile", "Path to Mewofile", .short_name='f', .alias="file");
-    bool* debug   = flag_bool("debug", false, "Enable debug output", .short_name='d');
-    bool* dry_run = flag_bool("dry-run", false, "Print commands without executing");
+    char** shell                = flag_str("shell", "", "Default shell");
+    char** mewofile             = flag_str("mewofile", "Mewofile", "Path to Mewofile", .short_name='f', .alias="file");
+    bool*  debug                = flag_bool("debug", false, "Enable debug output", .short_name='d');
+    bool*  dry_run              = flag_bool("dry-run", false, "Print commands without executing");
+    bool*  echo                 = flag_bool("echo", false, "Echo commands before executing them", .short_name='e');
 
     if (!flag_parse(argc, argv)) {
         flag_print_error(stderr);
@@ -185,9 +187,9 @@ int main(int argc, char** argv) {
         printf("mewo version %d.%d\n", VERSION >> 8, VERSION & 0xFF);
         printf("Copyright (c) 2026 Markofwitch\n");
         #ifdef MEWO_RELEASE
-        printf("Release build at %s\n", BUILD_TIME);
+            printf("Release build at %s\n", BUILD_TIME);
         #else
-        printf("Development build at %s\n", BUILD_TIME);
+            printf("Development build at %s\n", BUILD_TIME);
         #endif
         return 0;
     }
@@ -263,7 +265,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (!execute_and_cleanup(ast, label, *dry_run, *shell && **shell ? *shell : NULL,
+    if (!execute_and_cleanup(ast, label, *dry_run, *echo, *shell && **shell ? *shell : NULL,
                              (const char**)features_enable->items, features_enable->count,
                              (const char**)features_disable->items, features_disable->count)) {
         if (has_error()) {
