@@ -275,23 +275,24 @@ static Stmt* parse_attr(const char* line, size_t line_number) {
     } else if (*p == ':') {
         p++;
         while (*p && isspace(*p)) p++;
-    } else {
-        const char* param_start = p;
-        while (*p && isspace(*p)) p++;
-        if (*p) {
-            param_start = p;
-            while (*p) p++;
-            size_t param_len = p - param_start;
-            char* param_str = malloc(param_len + 1);
-            memcpy(param_str, param_start, param_len);
-            param_str[param_len] = '\0';
-            Stmt* param = calloc(1, sizeof(Stmt));
-            param->type = STMT_COMMAND;
-            param->command.raw_line = param_str;
-            stmt->attr.parameters[0] = param;
-            stmt->attr.param_count = 1;
-        }
     }
+    // } else {
+    //     const char* param_start = p;
+    //     while (*p && isspace(*p)) p++;
+    //     if (*p) {
+    //         param_start = p;
+    //         while (*p) p++;
+    //         size_t param_len = p - param_start;
+    //         char* param_str = malloc(param_len + 1);
+    //         memcpy(param_str, param_start, param_len);
+    //         param_str[param_len] = '\0';
+    //         Stmt* param = calloc(1, sizeof(Stmt));
+    //         param->type = STMT_COMMAND;
+    //         param->command.raw_line = param_str;
+    //         stmt->attr.parameters[0] = param;
+    //         stmt->attr.param_count = 1;
+    //     }
+    // }
     
     return stmt;
 }

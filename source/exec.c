@@ -267,7 +267,7 @@ static bool check_conditional_attr(Stmt* attr, size_t line_number) {
         return is_platform_windows();
     }
     if (strcmp(name, "linux") == 0) {
-        return false;
+        return is_platform_linux();
     }
     if (strcmp(name, "macos") == 0 || strcmp(name, "darwin") == 0) {
         return is_platform_macos();
